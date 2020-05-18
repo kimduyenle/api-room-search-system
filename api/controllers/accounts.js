@@ -53,7 +53,6 @@ exports.accounts_get_account = (req, res, next) => {
     )
     .exec()
     .then((doc) => {
-      console.log(doc);
       if (doc) {
         res.status(200).json({
           success: true,
@@ -142,35 +141,46 @@ exports.account_login = (req, res, next) => {
           message: "Auth failed",
         });
       }
-      bcrypt.compare(req.body.password, account[0].password, (err, result) => {
-        if (err) {
-          return res.status(401).json({
-            success: false,
-            message: "Auth failed",
-          });
-        }
-        if (result) {
-          const token = jwt.sign(
-            {
-              username: account[0].username,
-              accountId: account[0]._id,
-            },
-            process.env.JWT_KEY,
-            {
-              expiresIn: "1h",
+      if (account[0].status == true) {
+        bcrypt.compare(
+          req.body.password,
+          account[0].password,
+          (err, result) => {
+            if (err) {
+              return res.status(401).json({
+                success: false,
+                message: "Auth failed",
+              });
             }
-          );
-          return res.status(200).json({
-            success: true,
-            message: "Auth successful",
-            token: token,
-          });
-        }
-        res.status(401).json({
+            if (result) {
+              const token = jwt.sign(
+                {
+                  username: account[0].username,
+                  accountId: account[0]._id,
+                },
+                process.env.JWT_KEY,
+                {
+                  expiresIn: "1h",
+                }
+              );
+              return res.status(200).json({
+                success: true,
+                message: "Auth successful",
+                token: token,
+              });
+            }
+            res.status(401).json({
+              success: false,
+              message: "Auth failed",
+            });
+          }
+        );
+      } else {
+        res.status(403).json({
           success: false,
-          message: "Auth failed",
+          message: "This account was locked",
         });
-      });
+      }
     })
     .catch((err) => {
       console.log(err);
@@ -184,9 +194,37 @@ exports.account_login = (req, res, next) => {
 exports.accounts_update_account = (req, res, next) => {
   const id = req.params.accountId;
   const updateOps = {};
-  for (const ops of req.body) {
-    updateOps[ops.propName] = ops.value;
-  }
+  bcrypt.hash(req.body.password, 10, (err, hash) => {
+    updateOps.password = hash;
+    updateOps.updated_at = new Date();
+    updateOps.updated_by = id;
+    Account.update({ _id: id }, { $set: updateOps })
+      .exec()
+      .then((result) => {
+        res.status(200).json({
+          success: true,
+          message: "Account password updated",
+          request: {
+            type: "GET",
+            url: "http://localhost:3000/accounts/" + id,
+          },
+        });
+      })
+      .catch((err) => {
+        console.log(err);
+        res.status(500).json({
+          success: false,
+          error: err,
+        });
+      });
+  });
+};
+
+exports.accounts_update_account_status = (req, res, next) => {
+  const id = req.params.accountId;
+  const updateOps = {
+    status: req.body.status,
+  };
   updateOps.updated_at = new Date();
   updateOps.updated_by = id;
   Account.update({ _id: id }, { $set: updateOps })
@@ -194,7 +232,7 @@ exports.accounts_update_account = (req, res, next) => {
     .then((result) => {
       res.status(200).json({
         success: true,
-        message: "Account updated",
+        message: "Account status updated",
         request: {
           type: "GET",
           url: "http://localhost:3000/accounts/" + id,
